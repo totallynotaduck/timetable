@@ -8,6 +8,21 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f5f5; color: #333; }
 
+/* Auth screen */
+.auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a73e8 0%, #6a4cff 100%); }
+.auth-card { background: white; border-radius: 16px; padding: 32px; width: 360px; max-width: 92vw; box-shadow: 0 12px 40px rgba(0,0,0,0.2); }
+.auth-card h2 { font-size: 22px; margin-bottom: 4px; color: #1a73e8; }
+.auth-card .sub { font-size: 13px; color: #888; margin-bottom: 20px; }
+.auth-card label { display: block; margin-bottom: 4px; font-size: 13px; color: #666; }
+.auth-card input { width: 100%; padding: 10px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; margin-bottom: 14px; }
+.auth-card button { width: 100%; padding: 11px; border: none; border-radius: 8px; background: #1a73e8; color: white; font-size: 15px; cursor: pointer; }
+.auth-card button:hover { background: #1666d6; }
+.auth-card .switch { text-align: center; margin-top: 14px; font-size: 13px; color: #666; }
+.auth-card .switch a { color: #1a73e8; cursor: pointer; text-decoration: none; }
+.auth-card .msg { font-size: 13px; margin-bottom: 12px; padding: 8px 10px; border-radius: 6px; display: none; }
+.auth-card .msg.err { display: block; background: #fce8e6; color: #d93025; }
+.auth-card .msg.ok { display: block; background: #e6f4ea; color: #188038; }
+
 /* Header */
 .header { background: #1a73e8; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
 .header h1 { font-size: 22px; font-weight: 500; }
@@ -16,7 +31,9 @@ body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f
 .header-controls button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
 .header-controls button:hover { background: rgba(255,255,255,0.35); }
 .header-controls .month-display { font-size: 18px; min-width: 140px; text-align: center; font-weight: 500; }
-.user-info span { font-size: 14px; }
+.user-info { display: flex; align-items: center; gap: 10px; font-size: 14px; }
+.user-info button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.user-info button:hover { background: rgba(255,255,255,0.35); }
 
 /* Main */
 .main { max-width: 1400px; margin: 24px auto; padding: 0 16px; }
@@ -70,8 +87,28 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 </head>
 <body>
 
+<!-- Auth screen -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <h2>📅 日程表</h2>
+    <div class="sub" id="authSub">登录以在多设备间同步你的日程</div>
+    <div class="msg" id="authMsg"></div>
+    <form id="authForm" onsubmit="return submitAuth(event)">
+      <label>用户名</label>
+      <input type="text" id="authUser" autocomplete="username" placeholder="用户名" required>
+      <label>密码</label>
+      <input type="password" id="authPass" autocomplete="current-password" placeholder="密码（至少 4 位）" required>
+      <button type="submit" id="authSubmit">登录</button>
+    </form>
+    <div class="switch">
+      <span id="authSwitchText">还没有账号？</span>
+      <a id="authSwitch" onclick="toggleAuthMode()">注册新账号</a>
+    </div>
+  </div>
+</div>
+
 <!-- Main App -->
-<div id="appScreen">
+<div id="appScreen" style="display:none">
   <div class="header">
     <h1>📅 日程表</h1>
     <div class="header-right">
@@ -81,6 +118,10 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
         <button onclick="changeMonth(1)">下一月 ▶</button>
       </div>
       <span class="sync-status" id="syncStatus"></span>
+      <div class="user-info">
+        <span id="userName"></span>
+        <button onclick="logout()">退出</button>
+      </div>
     </div>
   </div>
 
@@ -96,7 +137,17 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 <div class="loading-bar" id="loadingBar" style="width:0"></div>
 
 <script>
-const API = '';
+// --- API base URL -----------------------------------------------------------
+// Set this to your deployed Vercel API (e.g. https://timetable-api.vercel.app)
+// You can override it by adding <meta name="api-base" content="..."> before this script.
+const API = (document.querySelector('meta[name="api-base"]') || {}).content
+  || window.API_BASE
+  || 'https://timetable-api.vercel.app';
+
+let authToken = localStorage.getItem('tt_token') || '';
+let authUser = localStorage.getItem('tt_user') || '';
+let authMode = 'login'; // 'login' | 'register'
+
 let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
 let selectedWeek = 0;
@@ -110,55 +161,149 @@ for (let h = 6; h <= 22; h++) {
   if (h < 22) timeSlots.push(`${String(h).padStart(2, '0')}:30`);
 }
 
+function showLoading(pct) { document.getElementById('loadingBar').style.width = pct + '%'; }
+function hideLoading() { document.getElementById('loadingBar').style.width = '0'; }
+
+function setSync(text) { document.getElementById('syncStatus').textContent = text; }
+
+// --- Fetch helper with auth -------------------------------------------------
+async function apiFetch(path, opts = {}) {
+  opts.headers = Object.assign({
+    'Content-Type': 'application/json',
+    ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
+  }, opts.headers || {});
+  const res = await fetch(`${API}${path}`, opts);
+  let data = {};
+  try { data = await res.json(); } catch {}
+  return { res, data };
+}
+
+// --- Auth UI ----------------------------------------------------------------
+function toggleAuthMode() {
+  authMode = authMode === 'login' ? 'register' : 'login';
+  document.getElementById('authSubmit').textContent = authMode === 'login' ? '登录' : '注册';
+  document.getElementById('authSwitchText').textContent = authMode === 'login' ? '还没有账号？' : '已经有账号？';
+  document.getElementById('authSwitch').textContent = authMode === 'login' ? '注册新账号' : '去登录';
+  document.getElementById('authSub').textContent = authMode === 'login' ? '登录以在多设备间同步你的日程' : '创建一个账号，日程将保存在云端并跨设备同步';
+  showAuthMsg('', '');
+}
+function showAuthMsg(text, kind) {
+  const el = document.getElementById('authMsg');
+  el.className = 'msg' + (kind ? ' ' + kind : '');
+  el.textContent = text;
+}
+
+async function submitAuth(event) {
+  event.preventDefault();
+  const username = document.getElementById('authUser').value.trim();
+  const password = document.getElementById('authPass').value;
+  if (!username || !password) { showAuthMsg('请填写用户名和密码', 'err'); return false; }
+  const { res, data } = await apiFetch(`/${authMode}`, {
+    method: 'POST',
+    body: JSON.stringify({ username, password })
+  });
+  if (data.ok) {
+    authToken = data.token;
+    authUser = data.username;
+    localStorage.setItem('tt_token', authToken);
+    localStorage.setItem('tt_user', authUser);
+    showAuthMsg('登录成功，正在加载日程...', 'ok');
+    await enterApp();
+  } else {
+    showAuthMsg(data.message || '操作失败', 'err');
+  }
+  return false;
+}
+
+async function logout() {
+  if (authToken) {
+    try { await apiFetch('/logout', { method: 'POST' }); } catch {}
+  }
+  authToken = ''; authUser = '';
+  localStorage.removeItem('tt_token');
+  localStorage.removeItem('tt_user');
+  localStorage.removeItem('timetable_events');
+  events = [];
+  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('authScreen').style.display = 'flex';
+  showAuthMsg('', '');
+}
+
+async function verifySession() {
+  if (!authToken) return false;
+  const { res, data } = await apiFetch('/verify', { method: 'GET' });
+  if (data.ok) {
+    authUser = data.username;
+    localStorage.setItem('tt_user', authUser);
+    return true;
+  }
+  // token invalid -> clear
+  authToken = ''; authUser = '';
+  localStorage.removeItem('tt_token');
+  localStorage.removeItem('tt_user');
+  return false;
+}
+
+// --- App --------------------------------------------------------------------
 function showApp() {
+  document.getElementById('authScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'block';
+  document.getElementById('userName').textContent = authUser;
   renderAll();
   syncTimer = setInterval(async () => {
     if (dirty) { await syncSave(); dirty = false; }
   }, 10000);
 }
 
-function showLoading(pct) { document.getElementById('loadingBar').style.width = pct + '%'; }
-function hideLoading() { document.getElementById('loadingBar').style.width = '0'; }
+async function enterApp() {
+  showApp();
+  await syncLoad();
+}
 
 async function syncLoad() {
   showLoading(30);
   try {
-    const res = await fetch(`${API}/api/events`);
-    const data = await res.json();
+    const { data } = await apiFetch('/events', { method: 'GET' });
     if (data.ok) {
       events = data.events || [];
       saveLocal();
+      setSync('✓ 已同步');
+    } else {
+      setSync('⚠ 同步失败');
     }
     showLoading(100);
-    document.getElementById('syncStatus').textContent = '✓ 已同步';
   } catch (e) {
-    document.getElementById('syncStatus').textContent = '';
+    setSync('⚠ 离线（本地数据）');
   }
-  setTimeout(hideLoading, 500);
+  setTimeout(hideLoading, 400);
+  renderTable();
 }
 
 async function syncSave() {
-  document.getElementById('syncStatus').textContent = '⟳ 同步中...';
+  setSync('⟳ 同步中...');
   showLoading(50);
   try {
-    await fetch(`${API}/api/events`, {
+    const { data } = await apiFetch('/events', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ events })
     });
-    document.getElementById('syncStatus').textContent = '✓ 已同步';
+    setSync(data.ok ? '✓ 已同步' : '⚠ 保存失败');
   } catch (e) {
-    document.getElementById('syncStatus').textContent = '';
+    setSync('⚠ 离线（本地数据）');
   }
-  setTimeout(hideLoading, 500);
+  setTimeout(hideLoading, 400);
 }
 
 function saveLocal() { localStorage.setItem('timetable_events', JSON.stringify(events)); }
 
 (async function init() {
-  events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
-  await showApp();
+  const ok = await verifySession();
+  if (ok) {
+    await enterApp();
+  } else {
+    document.getElementById('authScreen').style.display = 'flex';
+    document.getElementById('appScreen').style.display = 'none';
+  }
 })();
 
 /* --- Date helpers --- */
