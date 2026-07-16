@@ -1,17 +1,7 @@
 {
   "name": "timetable-app",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "private": true,
-  "description": "Timetable app with a multi-device account system (front-end on GitHub Pages, API on Vercel + Upstash Redis).",
-  "scripts": {
-    "start": "vercel dev",
-    "dev": "vercel dev"
-  },
-  "dependencies": {
-    "@upstash/redis": "^1.34.0",
-    "bcryptjs": "^2.4.3"
-  },
-  "devDependencies": {
-    "vercel": "^56.2.1"
-  }
+  "description": "Timetable app with a multi-device account system. Static front-end on GitHub Pages, data synced via Upstash Redis REST (no backend server).",
+  "dependencies": {}
 }

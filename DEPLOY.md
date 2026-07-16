@@ -1,42 +1,34 @@
-# Deploy to GitHub Pages (static front-end) + Vercel (account API)
+# Deploy — GitHub Pages only + Upstash Redis (no server needed)
 
-GitHub Pages can only serve **static files** — it cannot run the Node `api/` functions.
-So the app is split:
+The app runs **entirely as a static site** on GitHub Pages. It talks directly to
+**Upstash Redis REST** (which is CORS-enabled), so there is no backend to deploy.
+Your timetable syncs across every device that logs in with the same username.
 
-- **GitHub Pages** → hosts the static `index.html` (the account UI + timetable).
-- **Vercel** → hosts the `api/` serverless functions + Upstash Redis (the online DB that syncs across devices).
+## 1. Create the online database (free)
+1. Go to https://upstash.com → sign up → **Create Database**.
+2. Open the database → **REST API** section.
+3. Copy the **REST URL** (e.g. `https://xxx.upstash.io`) and the **REST Token**
+   (starts with `Axp_` or similar).
 
-The static site calls the API using the `API` base URL defined near the top of
-`index.html`. Set it to your deployed Vercel URL (or via a `meta[name="api-base"]` tag).
+## 2. Deploy the static site to GitHub Pages
+1. Push this repo to GitHub (it is already pushed to `totallynotaduck/timetable`).
+2. Repo **Settings → Pages → Source: Deploy from a branch**, branch `main`, folder `/ (root)`.
+3. Your app is live at `https://<user>.github.io/<repo>/`.
 
-## 1. Create the online database (Upstash Redis)
-1. Go to https://upstash.com → **Create Database** (free).
-2. Copy the **REST URL** and **REST Token**.
+> `.nojekyll` is included so GitHub Pages serves everything as-is.
 
-## 2. Deploy the API to Vercel
-1. `npm install` (installs `@upstash/redis` + `bcryptjs`).
-2. `vercel env add UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
-   (paste the values from step 1). Also add `NODE_ENV=production`.
-3. `vercel --prod` to deploy.
-4. Note your API URL, e.g. `https://timetable-api.vercel.app`.
+## 3. Connect the app to the database (in the browser)
+1. Open the live URL. Click **⚙ 数据库设置（Upstash）**.
+2. Paste the **REST URL** and **REST Token**, save. The page reloads.
+3. **Register** a username + password (stored hashed in Upstash).
+4. On any other device, open the same URL, enter the **same Upstash URL + Token**,
+   and **log in** with the same username. Your timetable is now synced.
 
-## 3. Point the front-end at the API
-In `index.html`, change the `API` constant near the top of the `<script>`:
-```js
-const API = 'https://timetable-api.vercel.app';
-```
-(Or leave it and add `<meta name="api-base" content="https://...">` in `<head>`.)
+The Upstash URL/Token are stored in the browser's `localStorage` (per device).
+They are sent directly to Upstash over HTTPS — no middle server sees them.
 
-## 4. Deploy the static site to GitHub Pages
-1. Push this repo to GitHub.
-2. Repo **Settings → Pages → Build and deployment → Source: Deploy from a branch**.
-3. Choose branch `main` (or `gh-pages`) and folder **`/ (root)`**, then **Save**.
-4. Wait for the Action to finish. Your app is live at
-   `https://<user>.github.io/<repo>/`.
-
-> The `.nojekyll` file is included so GitHub Pages does not ignore the `api/` folder.
-
-## 5. Cross-device sync
-Open the GitHub Pages URL on any device, **register** once, then **log in** everywhere.
-Events are saved per-account in Upstash Redis and loaded automatically on each device,
-so they stay in sync.
+## Security note
+Because the Upstash token lives in client-side JS, anyone with the page + token can
+read/write that Redis DB. This is fine for a **personal** timetable. For stronger
+isolation you could scope the token or add a Vercel proxy (see git history: the old
+`api/` serverless backend). Passwords are still hashed with bcrypt before storage.

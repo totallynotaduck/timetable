@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>日程表</title>
+<script src="https://cdn.jsdelivr.net/npm/bcryptjs@2.4.3/dist/bcrypt.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f5f5; color: #333; }
@@ -82,6 +83,11 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 .end-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .end-row input, .end-row select { margin-bottom: 0; }
 .hidden { display: none !important; }
+.adv-toggle { text-align: center; margin-top: 14px; font-size: 12px; }
+.adv-toggle a { color: #888; cursor: pointer; text-decoration: none; }
+.adv-box { margin-top: 12px; border-top: 1px solid #eee; padding-top: 12px; }
+.adv-box label { margin-top: 6px; }
+.adv-hint { font-size: 11px; color: #999; line-height: 1.5; margin-bottom: 8px; }
 .loading-bar { position: fixed; top: 0; left: 0; height: 3px; background: #1a73e8; transition: width 0.3s; z-index: 999; }
 </style>
 </head>
@@ -103,6 +109,14 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
     <div class="switch">
       <span id="authSwitchText">还没有账号？</span>
       <a id="authSwitch" onclick="toggleAuthMode()">注册新账号</a>
+    </div>
+    <div class="adv-toggle"><a onclick="toggleAdv()">⚙ 数据库设置（Upstash）</a></div>
+    <div id="advBox" class="adv-box hidden">
+      <label>Upstash REST URL</label>
+      <input type="text" id="cfgUrl" placeholder="https://xxxx.upstash.io" autocomplete="off">
+      <label>Upstash REST Token</label>
+      <input type="password" id="cfgToken" placeholder="Axp_xxxx" autocomplete="off">
+      <div class="adv-hint">在 upstash.com 创建免费 Redis 数据库后，复制 REST URL 与 Token。仅本机保存。</div>
     </div>
   </div>
 </div>
@@ -137,17 +151,17 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 <div class="loading-bar" id="loadingBar" style="width:0"></div>
 
 <script>
-// --- API base URL -----------------------------------------------------------
-// Set this to your deployed Vercel API (e.g. https://timetable-api.vercel.app)
-// You can override it by adding <meta name="api-base" content="..."> before this script.
-const API = (document.querySelector('meta[name="api-base"]') || {}).content
-  || window.API_BASE
-  || 'https://timetable-api.vercel.app';
+// --- Cloud config (Upstash Redis REST) --------------------------------------
+// The app talks directly to Upstash Redis REST (CORS-enabled), so it runs on
+// GitHub Pages with no server. The REST URL + token are stored in localStorage.
+const LS_URL = 'tt_upstash_url';
+const LS_TOKEN = 'tt_upstash_token';
+const UP_URL = localStorage.getItem(LS_URL) || '';
+const UP_TOKEN = localStorage.getItem(LS_TOKEN) || '';
 
-let authToken = localStorage.getItem('tt_token') || '';
 let authUser = localStorage.getItem('tt_user') || '';
 let authMode = 'login'; // 'login' | 'register'
-let localMode = false;  // true when no cloud API is reachable/booted
+let localMode = !UP_URL || !UP_TOKEN; // true = no cloud configured -> localStorage only
 
 let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
@@ -167,16 +181,36 @@ function hideLoading() { document.getElementById('loadingBar').style.width = '0'
 
 function setSync(text) { document.getElementById('syncStatus').textContent = text; }
 
-// --- Fetch helper with auth -------------------------------------------------
-async function apiFetch(path, opts = {}) {
-  opts.headers = Object.assign({
-    'Content-Type': 'application/json',
-    ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
-  }, opts.headers || {});
-  const res = await fetch(`${API}${path}`, opts);
-  let data = {};
-  try { data = await res.json(); } catch {}
-  return { res, data };
+// --- Upstash REST helpers ---------------------------------------------------
+// Calls the Upstash Redis REST API directly (CORS-enabled). The REST token is
+// used as the bearer credential. Keys are namespaced per user.
+function upKey(k) { return k; }
+
+async function upGet(key) {
+  const res = await fetch(`${UP_URL}/get/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${UP_TOKEN}` }
+  });
+  const data = await res.json();
+  if (data.result === null || data.result === undefined) return null;
+  try { return JSON.parse(data.result); } catch { return data.result; }
+}
+
+async function upSet(key, value) {
+  const res = await fetch(`${UP_URL}/set/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${UP_TOKEN}` },
+    body: JSON.stringify(value)
+  });
+  return res.json();
+}
+
+async function upDel(key) {
+  const res = await fetch(`${UP_URL}/del/${encodeURIComponent(key)}`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${UP_TOKEN}` }
+  });
+  return res.json();
 }
 
 // --- Auth UI ----------------------------------------------------------------
@@ -188,6 +222,13 @@ function toggleAuthMode() {
   document.getElementById('authSub').textContent = authMode === 'login' ? '登录以在多设备间同步你的日程' : '创建一个账号，日程将保存在云端并跨设备同步';
   showAuthMsg('', '');
 }
+
+function toggleAdv() {
+  document.getElementById('advBox').classList.toggle('hidden');
+  document.getElementById('cfgUrl').value = UP_URL;
+  document.getElementById('cfgToken').value = UP_TOKEN;
+}
+
 function showAuthMsg(text, kind) {
   const el = document.getElementById('authMsg');
   el.className = 'msg' + (kind ? ' ' + kind : '');
@@ -199,40 +240,52 @@ async function submitAuth(event) {
   const username = document.getElementById('authUser').value.trim();
   const password = document.getElementById('authPass').value;
   if (!username || !password) { showAuthMsg('请填写用户名和密码', 'err'); return false; }
-  showAuthMsg('正在连接服务器...', '');
-  try {
-    const { res, data } = await apiFetch(`/${authMode}`, {
-      method: 'POST',
-      body: JSON.stringify({ username, password })
-    });
-    if (data.ok) {
-      authToken = data.token;
-      authUser = data.username;
-      localStorage.setItem('tt_token', authToken);
-      localStorage.setItem('tt_user', authUser);
-      showAuthMsg('登录成功，正在加载日程...', 'ok');
-      await enterApp();
-    } else {
-      showAuthMsg(data.message || '操作失败', 'err');
-    }
-  } catch (e) {
-    // No reachable cloud API: fall back to a local, single-device account so
-    // the app still opens. Sync will activate once API is configured.
-    localMode = true;
+
+  // Save advanced DB settings if provided
+  const cfgUrl = document.getElementById('cfgUrl').value.trim();
+  const cfgToken = document.getElementById('cfgToken').value.trim();
+  if (cfgUrl && cfgToken) {
+    localStorage.setItem(LS_URL, cfgUrl);
+    localStorage.setItem(LS_TOKEN, cfgToken);
+    window.location.reload();
+    return false;
+  }
+  if (localMode) {
+    // No cloud configured -> local-only account
     authUser = username;
     localStorage.setItem('tt_user', authUser);
-    showAuthMsg('已离线登录（仅本机保存，未同步云端）。配置 API 后可多设备同步。', 'ok');
+    showAuthMsg('已离线登录（仅本机保存，未同步云端）。在“数据库设置”中填入 Upstash 后可多设备同步。', 'ok');
     await enterApp();
+    return false;
+  }
+
+  showAuthMsg('正在连接数据库...', '');
+  try {
+    const uid = username.toLowerCase();
+    if (authMode === 'register') {
+      if (String(password).length < 4) { showAuthMsg('密码至少 4 位', 'err'); return false; }
+      const existing = await upGet(`user:${uid}`);
+      if (existing) { showAuthMsg('用户名已存在', 'err'); return false; }
+      const hash = bcrypt.hashSync(password, 10);
+      await upSet(`user:${uid}`, { username: uid, passwordHash: hash });
+    } else {
+      const rec = await upGet(`user:${uid}`);
+      if (!rec || !bcrypt.compareSync(password, rec.passwordHash)) {
+        showAuthMsg('用户名或密码错误', 'err'); return false;
+      }
+    }
+    authUser = uid;
+    localStorage.setItem('tt_user', authUser);
+    showAuthMsg('登录成功，正在加载日程...', 'ok');
+    await enterApp();
+  } catch (e) {
+    showAuthMsg('无法连接数据库：' + (e && e.message ? e.message : e), 'err');
   }
   return false;
 }
 
 async function logout() {
-  if (authToken && !localMode) {
-    try { await apiFetch('/logout', { method: 'POST' }); } catch {}
-  }
-  authToken = ''; authUser = ''; localMode = false;
-  localStorage.removeItem('tt_token');
+  authUser = '';
   localStorage.removeItem('tt_user');
   localStorage.removeItem('timetable_events');
   events = [];
@@ -242,19 +295,14 @@ async function logout() {
 }
 
 async function verifySession() {
-  if (!authToken) return false;
+  if (!authUser) return false;
   if (localMode) return true;
-  const { res, data } = await apiFetch('/verify', { method: 'GET' });
-  if (data.ok) {
-    authUser = data.username;
-    localStorage.setItem('tt_user', authUser);
-    return true;
+  try {
+    const rec = await upGet(`user:${authUser}`);
+    return !!rec;
+  } catch {
+    return false;
   }
-  // token invalid -> clear
-  authToken = ''; authUser = '';
-  localStorage.removeItem('tt_token');
-  localStorage.removeItem('tt_user');
-  return false;
 }
 
 // --- App --------------------------------------------------------------------
@@ -282,18 +330,14 @@ async function syncLoad() {
   }
   showLoading(30);
   try {
-    const { data } = await apiFetch('/events', { method: 'GET' });
-    if (data.ok) {
-      events = data.events || [];
-      saveLocal();
-      setSync('✓ 已同步');
-    } else {
-      setSync('⚠ 同步失败');
-    }
-    showLoading(100);
+    const data = await upGet(`events:${authUser}`);
+    events = Array.isArray(data) ? data : [];
+    saveLocal();
+    setSync('✓ 已同步');
   } catch (e) {
     setSync('⚠ 离线（本地数据）');
   }
+  showLoading(100);
   setTimeout(hideLoading, 400);
   renderTable();
 }
@@ -307,13 +351,10 @@ async function syncSave() {
   setSync('⟳ 同步中...');
   showLoading(50);
   try {
-    const { data } = await apiFetch('/events', {
-      method: 'POST',
-      body: JSON.stringify({ events })
-    });
-    setSync(data.ok ? '✓ 已同步' : '⚠ 保存失败');
+    await upSet(`events:${authUser}`, events);
+    setSync('✓ 已同步');
   } catch (e) {
-    setSync('⚠ 离线（本地数据）');
+    setSync('⚠ 保存失败');
   }
   setTimeout(hideLoading, 400);
 }
@@ -321,7 +362,7 @@ async function syncSave() {
 function saveLocal() { localStorage.setItem('timetable_events', JSON.stringify(events)); }
 
 (async function init() {
-  if (authUser && !authToken) localMode = true; // returning local-only user
+  if (authUser && localMode) { /* returning local-only user */ }
   const ok = await verifySession();
   if (ok) {
     await enterApp();
