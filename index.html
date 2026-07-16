@@ -438,38 +438,27 @@ function expandTemplate(template, rangeStart, rangeEnd) {
       if (d >= rangeStart && !shouldExclude(d)) results.push(makeInstance(template, d));
       d.setDate(d.getDate() + 1); count++;
     }
-  } else if (rec.type === 'weekly') {
-    let weekN = 0, total = 0;
+  } else if (rec.type === 'weekly' || rec.type === 'biweekly') {
+    const stepDays = rec.type === 'biweekly' ? 14 : 7;
     const end = rec.endType === 'date' ? parseDate(rec.endDate) : null;
-    const limit = rec.endType === 'count' ? rec.maxCount : Infinity;
-    while (total < limit && weekN <= 52) {
-      let allPast = true;
-      for (const dayIdx of rec.days) {
-        const d = new Date(startDate);
-        d.setDate(d.getDate() + ((dayIdx - d.getDay() + 7) % 7) + weekN * 7);
-        if (d > rangeEnd && (!end || d > end)) continue;
-        if (d >= rangeStart && (!end || d <= end) && total < limit && !shouldExclude(d)) {
-          results.push(makeInstance(template, d)); total++;
-        }
-        if (d >= rangeStart) allPast = false;
+    // In count mode, maxCount means "occurrences per selected weekday" (so
+    // 10 repeats of Tue/Wed/Thu/Fri => 10 of each), not a shared total. The
+    // occurrence index is global (counted from startDate) so the limit and
+    // the date range are honoured consistently across every month.
+    const perDayLimit = rec.endType === 'count' ? (rec.maxCount || 10) : Infinity;
+    const maxOcc = Number.isFinite(perDayLimit) ? perDayLimit : 2700; // ~10y safety cap
+    for (const dayIdx of rec.days) {
+      const offset = ((dayIdx - startDate.getDay()) + 7) % 7;
+      const firstD = new Date(startDate);
+      firstD.setDate(firstD.getDate() + offset);
+      for (let k = 0; k < maxOcc; k++) {
+        const d = new Date(firstD);
+        d.setDate(d.getDate() + k * stepDays);
+        if (end && d > end) break;
+        if (d > rangeEnd) break;
+        if (d < rangeStart) continue;
+        if (k < perDayLimit && !shouldExclude(d)) results.push(makeInstance(template, d));
       }
-      weekN++; if (allPast) break;
-    }
-  } else if (rec.type === 'biweekly') {
-    let weekN = 0, total = 0;
-    const end = rec.endType === 'date' ? parseDate(rec.endDate) : null;
-    const limit = rec.endType === 'count' ? rec.maxCount : Infinity;
-    while (total < limit && weekN <= 26) {
-      let allPast = true;
-      for (const dayIdx of rec.days) {
-        const d = new Date(startDate);
-        d.setDate(d.getDate() + ((dayIdx - d.getDay() + 7) % 7) + weekN * 14);
-        if (d >= rangeStart && (!end || d <= end) && total < limit && !shouldExclude(d)) {
-          results.push(makeInstance(template, d)); total++;
-        }
-        if (d >= rangeStart) allPast = false;
-      }
-      weekN++; if (allPast) break;
     }
   } else if (rec.type === 'monthly') {
     let mOff = 0, count = 0;
@@ -627,8 +616,8 @@ function showModal(event, defaultDate, defaultTime) {
               <input type="date" id="evEndDate" value="${rec.endDate || ''}">
             </div>
             <div class="end-row ${rec.endType!=='count'?'hidden':''}" id="endCountRow">
-              <input type="number" id="evMaxCount" min="1" max="100" value="${rec.maxCount || 10}">
-              <span style="font-size:13px;color:#666;white-space:nowrap">次</span>
+              <input type="number" id="evMaxCount" min="1" max="520" value="${rec.maxCount || 10}">
+              <span id="countUnit" style="font-size:13px;color:#666;white-space:nowrap">次（每个选中的星期各重复此次数）</span>
             </div>
           </div>
         </div>
@@ -649,6 +638,12 @@ function onRecTypeChange() {
   const type = document.getElementById('evRecType').value;
   document.getElementById('recOpts').className = type !== 'none' ? 'recurring-options visible' : 'recurring-options';
   document.getElementById('dayChecks').className = (type === 'daily' || type === 'monthly') ? 'day-checkboxes hidden' : 'day-checkboxes';
+  const unit = document.getElementById('countUnit');
+  if (unit) {
+    unit.textContent = (type === 'weekly' || type === 'biweekly')
+      ? '周（每个选中的星期各重复此周数）'
+      : '次';
+  }
 }
 
 function onEndTypeChange() {
