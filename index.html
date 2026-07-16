@@ -8,15 +8,35 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f5f5; color: #333; }
 
+/* Auth screen */
+.auth-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #1a73e8 0%, #6c63ff 100%); }
+.auth-box { background: white; border-radius: 16px; padding: 40px; width: 380px; box-shadow: 0 12px 48px rgba(0,0,0,0.15); }
+.auth-box h1 { text-align: center; margin-bottom: 8px; font-size: 26px; color: #1a73e8; }
+.auth-box .subtitle { text-align: center; color: #999; margin-bottom: 24px; font-size: 13px; }
+.auth-box input { width: 100%; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; margin-bottom: 12px; outline: none; transition: border 0.2s; }
+.auth-box input:focus { border-color: #1a73e8; }
+.auth-box button.full { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-top: 8px; }
+.auth-box button.full:hover { background: #1558b0; }
+.auth-toggle { text-align: center; margin-top: 16px; font-size: 13px; color: #666; }
+.auth-toggle a { color: #1a73e8; cursor: pointer; text-decoration: underline; }
+.auth-error { color: #d93025; font-size: 13px; text-align: center; margin-top: 10px; min-height: 18px; }
+
+/* Header */
 .header { background: #1a73e8; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
 .header h1 { font-size: 22px; font-weight: 500; }
+.header-right { display: flex; align-items: center; gap: 12px; }
 .header-controls { display: flex; align-items: center; gap: 12px; }
 .header-controls button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
 .header-controls button:hover { background: rgba(255,255,255,0.35); }
 .header-controls .month-display { font-size: 18px; min-width: 140px; text-align: center; font-weight: 500; }
+.user-info { display: flex; align-items: center; gap: 8px; }
+.user-info span { font-size: 14px; }
+.btn-logout { background: rgba(255,255,255,0.15); border: none; color: white; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.btn-logout:hover { background: rgba(255,255,255,0.3); }
+.sync-status { font-size: 12px; opacity: 0.7; }
 
+/* Main */
 .main { max-width: 1400px; margin: 24px auto; padding: 0 16px; }
-
 .week-nav { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
 .week-nav button { background: white; border: 1px solid #ddd; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 13px; transition: all 0.15s; }
 .week-nav button:hover { border-color: #1a73e8; color: #1a73e8; }
@@ -52,7 +72,6 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 .btn-delete { background: #d93025; color: white; }
 .btn-delete-soft { background: #f9ab00; color: white; }
 
-/* Recurring section */
 .recurring-section { margin-top: 8px; border-top: 1px solid #eee; padding-top: 12px; }
 .recurring-section .section-label { font-size: 14px; color: #333; font-weight: 500; margin-bottom: 8px; display: block; }
 .recurring-options { display: none; margin-top: 8px; }
@@ -63,33 +82,66 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 .end-row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
 .end-row input, .end-row select { margin-bottom: 0; }
 .hidden { display: none !important; }
+.loading-bar { position: fixed; top: 0; left: 0; height: 3px; background: #1a73e8; transition: width 0.3s; z-index: 999; }
 </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>📅 日程表</h1>
-  <div class="header-controls">
-    <button onclick="changeMonth(-1)">◀ 上一月</button>
-    <span class="month-display" id="monthDisplay"></span>
-    <button onclick="changeMonth(1)">下一月 ▶</button>
+<!-- Auth Screen -->
+<div id="authScreen" class="auth-screen">
+  <div class="auth-box" id="authBox">
+    <h1>📅 日程表</h1>
+    <p class="subtitle" id="authSubtitle">登录以继续</p>
+    <input type="text" id="authUsername" placeholder="用户名" autocomplete="username">
+    <input type="password" id="authPassword" placeholder="密码" autocomplete="current-password">
+    <button class="full" id="authBtn" onclick="doAuth()">登录</button>
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-toggle">
+      <a onclick="toggleAuthMode()">切换注册 / 登录</a>
+    </div>
   </div>
 </div>
 
-<div class="main">
-  <div class="week-nav" id="weekNav"></div>
-  <div class="table-wrap">
-    <table id="timetable"></table>
+<!-- Main App (hidden until login) -->
+<div id="appScreen" style="display:none">
+  <div class="header">
+    <h1>📅 日程表</h1>
+    <div class="header-right">
+      <div class="header-controls">
+        <button onclick="changeMonth(-1)">◀ 上一月</button>
+        <span class="month-display" id="monthDisplay"></span>
+        <button onclick="changeMonth(1)">下一月 ▶</button>
+      </div>
+      <div class="user-info">
+        <span id="userName"></span>
+        <span class="sync-status" id="syncStatus"></span>
+        <button class="btn-logout" onclick="logout()">退出登录</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="week-nav" id="weekNav"></div>
+    <div class="table-wrap">
+      <table id="timetable"></table>
+    </div>
   </div>
 </div>
 
 <div id="modalRoot"></div>
+<div class="loading-bar" id="loadingBar" style="width:0"></div>
 
 <script>
+const API = '';
 let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
 let selectedWeek = 0;
-let events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
+let events = [];
+let authToken = '';
+let currentUser = '';
+let isRegistering = false;
+let dirty = false;
+let syncTimer = null;
 
 const timeSlots = [];
 for (let h = 6; h <= 22; h++) {
@@ -97,8 +149,96 @@ for (let h = 6; h <= 22; h++) {
   if (h < 22) timeSlots.push(`${String(h).padStart(2, '0')}:30`);
 }
 
-function saveEvents() { localStorage.setItem('timetable_events', JSON.stringify(events)); }
-function genId() { return 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); }
+/* --- Auth --- */
+function toggleAuthMode() {
+  isRegistering = !isRegistering;
+  document.getElementById('authBtn').textContent = isRegistering ? '注册' : '登录';
+  document.getElementById('authSubtitle').textContent = isRegistering ? '创建新账户' : '登录以继续';
+  document.getElementById('authError').textContent = '';
+}
+
+async function doAuth() {
+  const username = document.getElementById('authUsername').value.trim();
+  const password = document.getElementById('authPassword').value.trim();
+  if (!username || !password) { document.getElementById('authError').textContent = '请填写用户名和密码'; return; }
+  const action = isRegistering ? 'register' : 'login';
+  const res = await fetch(`${API}/api/auth/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password })
+  });
+  const data = await res.json();
+  if (!data.ok) { document.getElementById('authError').textContent = data.message; return; }
+  authToken = data.token;
+  currentUser = data.username;
+  localStorage.setItem('tt_token', data.token);
+  localStorage.setItem('tt_user', data.username);
+  showApp();
+}
+
+async function showApp() {
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('appScreen').style.display = 'block';
+  document.getElementById('userName').textContent = `👤 ${currentUser}`;
+  await syncLoad();
+  renderAll();
+  // Auto-sync on interval
+  syncTimer = setInterval(async () => {
+    if (dirty) { await syncSave(); dirty = false; }
+  }, 10000);
+}
+
+function logout() {
+  if (dirty) syncSave();
+  clearInterval(syncTimer);
+  localStorage.removeItem('tt_token');
+  localStorage.removeItem('tt_user');
+  authToken = ''; currentUser = '';
+  events = [];
+  document.getElementById('appScreen').style.display = 'none';
+  document.getElementById('authScreen').style.display = 'flex';
+  document.getElementById('authUsername').value = '';
+  document.getElementById('authPassword').value = '';
+}
+
+/* --- Cloud sync via Redis --- */
+function showLoading(pct) { document.getElementById('loadingBar').style.width = pct + '%'; }
+function hideLoading() { document.getElementById('loadingBar').style.width = '0'; }
+
+async function syncLoad() {
+  showLoading(30);
+  try {
+    const res = await fetch(`${API}/api/events`, { headers: { 'Authorization': authToken } });
+    const data = await res.json();
+    if (data.ok) {
+      events = data.events || [];
+      saveLocal();
+    }
+    showLoading(100);
+    document.getElementById('syncStatus').textContent = '✓ 已同步';
+  } catch (e) {
+    document.getElementById('syncStatus').textContent = '⚠ 同步失败';
+  }
+  setTimeout(hideLoading, 500);
+}
+
+async function syncSave() {
+  document.getElementById('syncStatus').textContent = '⟳ 同步中...';
+  showLoading(50);
+  try {
+    await fetch(`${API}/api/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': authToken },
+      body: JSON.stringify({ events })
+    });
+    document.getElementById('syncStatus').textContent = '✓ 已同步';
+  } catch (e) {
+    document.getElementById('syncStatus').textContent = '⚠ 同步失败';
+  }
+  setTimeout(hideLoading, 500);
+}
+
+function saveLocal() { localStorage.setItem('timetable_events', JSON.stringify(events)); }
 
 /* --- Date helpers --- */
 function getWeeksOfMonth(year, month) {
@@ -126,20 +266,12 @@ function parseDate(s) {
 }
 
 /* --- Recurring engine --- */
-// Given a template event, expand it into concrete instances within a date range.
-// template: { id, groupId, title, time, color, note, startDate, recurring }
-// recurring: { type, days[], endType, endDate, maxCount }
-// Returns array of { id, groupId, title, date, time, color, note }
 function expandTemplate(template, rangeStart, rangeEnd) {
   const results = [];
   const rec = template.recurring;
   if (!rec || rec.type === 'none') return results;
-
   const startDate = parseDate(template.startDate);
-  const maxIter = 100; // safety limit
-
-  const excludes = (rec.excludes || []);
-
+  const excludes = rec.excludes || [];
   function shouldExclude(d) { return excludes.includes(formatDate(d)); }
 
   if (rec.type === 'daily') {
@@ -148,12 +280,9 @@ function expandTemplate(template, rangeStart, rangeEnd) {
     const limit = rec.endType === 'count' ? rec.maxCount : Infinity;
     while (count < limit && d <= rangeEnd && (!end || d <= end)) {
       if (d >= rangeStart && !shouldExclude(d)) results.push(makeInstance(template, d));
-      d.setDate(d.getDate() + 1);
-      count++;
+      d.setDate(d.getDate() + 1); count++;
     }
-  }
-
-  else if (rec.type === 'weekly') {
+  } else if (rec.type === 'weekly') {
     let weekN = 0, total = 0;
     const end = rec.endType === 'date' ? parseDate(rec.endDate) : null;
     const limit = rec.endType === 'count' ? rec.maxCount : Infinity;
@@ -164,17 +293,13 @@ function expandTemplate(template, rangeStart, rangeEnd) {
         d.setDate(d.getDate() + ((dayIdx - d.getDay() + 7) % 7) + weekN * 7);
         if (d > rangeEnd && (!end || d > end)) continue;
         if (d >= rangeStart && (!end || d <= end) && total < limit && !shouldExclude(d)) {
-          results.push(makeInstance(template, d));
-          total++;
+          results.push(makeInstance(template, d)); total++;
         }
         if (d >= rangeStart) allPast = false;
       }
-      weekN++;
-      if (allPast) break;
+      weekN++; if (allPast) break;
     }
-  }
-
-  else if (rec.type === 'biweekly') {
+  } else if (rec.type === 'biweekly') {
     let weekN = 0, total = 0;
     const end = rec.endType === 'date' ? parseDate(rec.endDate) : null;
     const limit = rec.endType === 'count' ? rec.maxCount : Infinity;
@@ -184,17 +309,13 @@ function expandTemplate(template, rangeStart, rangeEnd) {
         const d = new Date(startDate);
         d.setDate(d.getDate() + ((dayIdx - d.getDay() + 7) % 7) + weekN * 14);
         if (d >= rangeStart && (!end || d <= end) && total < limit && !shouldExclude(d)) {
-          results.push(makeInstance(template, d));
-          total++;
+          results.push(makeInstance(template, d)); total++;
         }
         if (d >= rangeStart) allPast = false;
       }
-      weekN++;
-      if (allPast) break;
+      weekN++; if (allPast) break;
     }
-  }
-
-  else if (rec.type === 'monthly') {
+  } else if (rec.type === 'monthly') {
     let mOff = 0, count = 0;
     const end = rec.endType === 'date' ? parseDate(rec.endDate) : null;
     const limit = rec.endType === 'count' ? rec.maxCount : Infinity;
@@ -202,47 +323,35 @@ function expandTemplate(template, rangeStart, rangeEnd) {
       const d = new Date(startDate);
       d.setMonth(d.getMonth() + mOff);
       if (d >= rangeStart && (!end || d <= end) && !shouldExclude(d)) {
-        results.push(makeInstance(template, d));
-        count++;
+        results.push(makeInstance(template, d)); count++;
       }
       if (d > rangeEnd && (!end || d > end)) break;
       mOff++;
     }
   }
-
   return results;
 }
 
 function makeInstance(template, date) {
-  return {
-    id: template.id,
-    groupId: template.groupId,
-    title: template.title,
-    date: formatDate(date),
-    time: template.time,
-    color: template.color,
-    note: template.note
-  };
+  return { id: template.id, groupId: template.groupId, title: template.title, date: formatDate(date), time: template.time, color: template.color, note: template.note };
 }
+
+function genId() { return 'ev_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8); }
 
 /* --- Render --- */
 function getVisibleEvents() {
-  // Get all events visible in current month view
   const weeks = getWeeksOfMonth(currentYear, currentMonth);
   const firstDate = weeks[0] ? weeks[0].start : new Date(currentYear, currentMonth, 1);
   const lastDate = weeks[weeks.length - 1] ? weeks[weeks.length - 1].end : new Date(currentYear, currentMonth + 1, 0);
-
   const visible = [];
   for (const ev of events) {
-    if (ev.recurring && ev.recurring.type !== 'none') {
-      // Template: expand
-      visible.push(...expandTemplate(ev, firstDate, lastDate));
-    } else {
-      visible.push(ev);
-    }
+    if (ev.recurring && ev.recurring.type !== 'none') visible.push(...expandTemplate(ev, firstDate, lastDate));
+    else visible.push(ev);
   }
   return visible;
 }
+
+function renderAll() { renderMonthDisplay(); renderWeekNav(); renderTable(); }
 
 function renderMonthDisplay() {
   document.getElementById('monthDisplay').textContent = `${currentYear}年${currentMonth + 1}月`;
@@ -254,8 +363,7 @@ function renderWeekNav() {
   nav.innerHTML = '';
   weeks.forEach((w, i) => {
     const btn = document.createElement('button');
-    const s = formatDate(w.start), e = formatDate(w.end);
-    btn.textContent = `第${i+1}周 (${s.slice(5)} ~ ${e.slice(5)})`;
+    btn.textContent = `第${i+1}周 (${formatDate(w.start).slice(5)} ~ ${formatDate(w.end).slice(5)})`;
     btn.className = i === selectedWeek ? 'active' : '';
     btn.onclick = () => { selectedWeek = i; renderTable(); renderWeekNav(); };
     nav.appendChild(btn);
@@ -265,24 +373,15 @@ function renderWeekNav() {
 function renderTable() {
   const weeks = getWeeksOfMonth(currentYear, currentMonth);
   if (selectedWeek >= weeks.length) selectedWeek = weeks.length - 1;
-  const week = weeks[selectedWeek];
-  if (!week) return;
-
+  const week = weeks[selectedWeek]; if (!week) return;
   const days = [];
   const dayNames = ['日', '一', '二', '三', '四', '五', '六'];
   for (let i = 0; i < 7; i++) {
-    const d = new Date(week.start);
-    d.setDate(d.getDate() + i);
-    days.push({
-      date: d,
-      dateStr: formatDate(d),
-      label: `周${dayNames[d.getDay()]} ${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`,
-      inMonth: d.getMonth() === currentMonth
-    });
+    const d = new Date(week.start); d.setDate(d.getDate() + i);
+    days.push({ date: d, dateStr: formatDate(d), label: `周${dayNames[d.getDay()]} ${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')}`, inMonth: d.getMonth() === currentMonth });
   }
 
   const visibleEvents = getVisibleEvents();
-
   const table = document.getElementById('timetable');
   let html = '<thead><tr><th style="width:60px">时间</th>';
   days.forEach(d => { html += `<th style="${d.inMonth?'':'opacity:0.3'}">${d.label}</th>`; });
@@ -300,25 +399,20 @@ function renderTable() {
         if (isRec) cls += ' is-recurring';
         let inner = `<div class="ev-title">${ev.title}</div>`;
         if (ev.note) inner += `<div class="ev-note">${ev.note}</div>`;
-        // Pass groupId and date for delete/edit
-        const recInfo = isRec ? `data-group="${ev.groupId}" data-date="${ev.date}"` : '';
-        html += `<div class="${cls}" onclick="editEvent('${ev.id}', '${ev.groupId||''}', '${ev.date}')" ${recInfo}>${inner}</div>`;
+        html += `<div class="${cls}" onclick="editEvent('${ev.id}', '${ev.groupId||''}', '${ev.date}')">${inner}</div>`;
       });
       html += '</div></td>';
     });
     html += '</tr>';
   });
 
-  html += '</tbody>';
-  table.innerHTML = html;
+  table.innerHTML = html + '</tbody>';
 
   document.querySelectorAll('td:not(.time-col)').forEach((td, idx) => {
     td.style.position = 'relative';
     td.onclick = function(e) {
       if (e.target.closest('.event')) return;
-      const timeIdx = Math.floor(idx / 7);
-      const dayIdx = idx % 7;
-      showModal(null, days[dayIdx].date, timeSlots[timeIdx]);
+      showModal(null, days[idx % 7].date, timeSlots[Math.floor(idx / 7)]);
     };
   });
 }
@@ -329,14 +423,8 @@ function showModal(event, defaultDate, defaultTime) {
   const isEdit = !!event;
   const dateStr = event ? event.startDate || event.date : (defaultDate ? formatDate(defaultDate) : '');
   const timeVal = event ? event.time : (defaultTime || '');
-
   const rec = event && event.recurring ? event.recurring : { type: 'none', days: [], endType: 'date', maxCount: 10 };
-
-  // For edit: if editing a recurring instance, restore the template's recurring settings
-  let recDays = rec.days || [];
-  if (isEdit && event.recurring && event.recurring.days) {
-    recDays = event.recurring.days;
-  }
+  const recDays = (isEdit && event.recurring && event.recurring.days) ? event.recurring.days : rec.days || [];
 
   root.innerHTML = `
     <div class="modal-overlay" onclick="if(event.target===this)closeModal()">
@@ -374,17 +462,14 @@ function showModal(event, defaultDate, defaultTime) {
                 return `<label><input type="checkbox" value="${i}" ${checked}>${name}</label>`;
               }).join('')}
             </div>
-
             <label>结束方式</label>
             <select id="evEndType" onchange="onEndTypeChange()">
               <option value="date" ${rec.endType==='date'?'selected':''}>到指定日期</option>
               <option value="count" ${rec.endType==='count'?'selected':''}>重复指定次数</option>
             </select>
-
             <div class="end-row ${rec.endType==='count'?'hidden':''}" id="endDateRow">
               <input type="date" id="evEndDate" value="${rec.endDate || ''}">
             </div>
-
             <div class="end-row ${rec.endType!=='count'?'hidden':''}" id="endCountRow">
               <input type="number" id="evMaxCount" min="1" max="100" value="${rec.maxCount || 10}">
               <span style="font-size:13px;color:#666;white-space:nowrap">次</span>
@@ -394,15 +479,14 @@ function showModal(event, defaultDate, defaultTime) {
 
         <div class="modal-actions" style="margin-top:16px">
           ${isEdit ? `
-            ${event.recurring ? `<button class="btn-delete" onclick="deleteGroup('${event.groupId}')">删除全部重复</button>` : ''}
+            ${event.recurring && event.recurring.type !== 'none' ? `<button class="btn-delete" onclick="deleteGroup('${event.groupId}')">删除全部重复</button>` : ''}
             <button class="btn-delete-soft" onclick="deleteSingle('${event.id}', '${event.groupId||''}', '${event.date}')">仅删除此条</button>
           ` : ''}
           <button class="btn-cancel" onclick="closeModal()">取消</button>
           <button class="btn-save" onclick="saveEvent('${event ? event.id : ''}', '${event ? (event.groupId||'') : ''}', '${event ? event.date : ''}')">${isEdit ? '保存修改' : '确认添加'}</button>
         </div>
       </div>
-    </div>
-  `;
+    </div>`;
 }
 
 function onRecTypeChange() {
@@ -435,22 +519,15 @@ function saveEvent(id, groupId, instanceDate) {
   const endType = document.getElementById('evEndType').value;
   const endDate = document.getElementById('evEndDate').value;
   const maxCount = parseInt(document.getElementById('evMaxCount').value) || 10;
-
   const days = Array.from(document.querySelectorAll('#dayChecks input:checked')).map(cb => parseInt(cb.value));
 
-  // Validate: weekly/biweekly need at least one day selected
   if ((recType === 'weekly' || recType === 'biweekly') && days.length === 0) {
     alert('请至少选择一个星期'); return;
   }
 
   if (recType !== 'none') {
-    // For weekly/biweekly, default day to start date's day if none selected
-    if ((recType === 'weekly' || recType === 'biweekly') && days.length === 0) {
-      days.push(new Date(date).getDay());
-    }
-
+    if ((recType === 'weekly' || recType === 'biweekly') && days.length === 0) days.push(new Date(date).getDay());
     if (id) {
-      // Update existing template
       const ev = events.find(e => e.id === id);
       if (ev) {
         ev.title = title; ev.time = time; ev.color = color; ev.note = note;
@@ -458,54 +535,42 @@ function saveEvent(id, groupId, instanceDate) {
         ev.recurring = { type: recType, days, endType, endDate, maxCount };
       }
     } else {
-      // New template
       const grpId = genId();
-      events.push({
-        id: genId(),
-        groupId: grpId,
-        title, date, time, color, note,
-        startDate: date,
-        recurring: { type: recType, days, endType, endDate, maxCount }
-      });
+      events.push({ id: genId(), groupId: grpId, title, date, time, color, note, startDate: date, recurring: { type: recType, days, endType, endDate, maxCount } });
     }
   } else {
     if (id) {
       const ev = events.find(e => e.id === id);
-      if (ev) {
-        ev.title = title; ev.date = date; ev.time = time; ev.color = color; ev.note = note;
-        ev.startDate = date;
-        ev.recurring = { type: 'none' };
-      }
+      if (ev) { ev.title = title; ev.date = date; ev.time = time; ev.color = color; ev.note = note; ev.startDate = date; ev.recurring = { type: 'none' }; }
     } else {
       events.push({ id: genId(), title, date, time, color, note, startDate: date, recurring: { type: 'none' } });
     }
   }
 
-  saveEvents(); closeModal(); renderTable();
+  dirty = true;
+  saveLocal();
+  closeModal();
+  renderTable();
 }
 
 function deleteSingle(id, groupId, date) {
-  if (!events.find(e => e.id === id)) { closeModal(); return; }
-  // For recurring: create an exclude list
   const ev = events.find(e => e.id === id);
-  if (ev && ev.recurring && ev.recurring.excludes) {
+  if (ev && ev.recurring) {
+    if (!ev.recurring.excludes) ev.recurring.excludes = [];
     ev.recurring.excludes.push(date);
   }
-  saveEvents(); closeModal(); renderTable();
+  dirty = true;
+  saveLocal();
+  closeModal();
+  renderTable();
 }
 
 function deleteGroup(groupId) {
-  if (!groupId) {
-    // Find by groupId
-    const ev = events.find(e => e.groupId === groupId || e.id === groupId);
-    if (ev) {
-      events = events.filter(e => e.groupId !== groupId && e.id !== ev.id);
-    }
-    saveEvents(); closeModal(); renderTable();
-    return;
-  }
-  events = events.filter(e => e.groupId !== groupId);
-  saveEvents(); closeModal(); renderTable();
+  if (groupId) events = events.filter(e => e.groupId !== groupId);
+  dirty = true;
+  saveLocal();
+  closeModal();
+  renderTable();
 }
 
 function changeMonth(delta) {
@@ -513,10 +578,19 @@ function changeMonth(delta) {
   if (currentMonth > 11) { currentMonth = 0; currentYear++; }
   if (currentMonth < 0) { currentMonth = 11; currentYear--; }
   selectedWeek = 0;
-  renderMonthDisplay(); renderWeekNav(); renderTable();
+  renderAll();
 }
 
-renderMonthDisplay(); renderWeekNav(); renderTable();
+// Auto-login check
+(async function init() {
+  const saved = localStorage.getItem('tt_token');
+  if (saved) {
+    authToken = saved;
+    currentUser = localStorage.getItem('tt_user') || '';
+    events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
+    await showApp();
+  }
+})();
 </script>
 </body>
 </html>
