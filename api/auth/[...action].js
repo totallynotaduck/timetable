@@ -1,10 +1,18 @@
-// api/auth/[...action].js  —  register / login
-const { Redis } = require('@upstash/redis');
+// api/auth/[...action].js — register / login / verify / logout
+const Redis = require('ioredis');
+const bcrypt = require('bcryptjs');
 
-function getClient() {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.REDIS_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.REDIS_TOKEN;
-  return new Redis({ url, token });
+// Vercel Redis integration sets REDIS_URL (direct Redis URL).
+const redis = new Redis(process.env.REDIS_URL || process.env.KV_URL || '');
+
+function userKey(uid) { return `user:${uid}`; }
+function sessionKey(token) { return `session:${token}`; }
+function eventsKey(username) { return `events:${username}`; }
+
+function generateToken() {
+  const arr = new Uint8Array(24);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, b => b.toString(16).padStart(2, '0')).join('');
 }
 
 function readBody(req) {
@@ -25,54 +33,164 @@ module.exports = async (req) => {
     if (parts.length >= 3) action = parts.slice(2);
   } catch {}
 
-  if (req.method === 'GET') {
-    return { json: { ok: true, message: 'auth ok' } };
-  }
-
-  let body;
-  try {
-    const raw = await readBody(req);
-    body = JSON.parse(raw);
-  } catch {
-    return { json: { ok: false, message: 'invalid JSON' } };
-  }
-
-  const redis = getClient();
-
   // --- register ---
-  if (action[0] === 'register') {
+  if (action[0] === 'register' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch {
+      return new Response(JSON.stringify({ ok: false, message: 'invalid JSON' }), { status: 400 });
+    }
     const { username, password } = body;
-    if (!username || !password) return { json: { ok: false, message: '请填写用户名和密码' } };
-    const exists = await redis.get(`user:${username}`);
-    if (exists) return { json: { ok: false, message: '用户名已存在' } };
-    await redis.set(`user:${username}`, JSON.stringify({ username, password, token: crypto.randomUUID() }));
-    return { json: { ok: true, token: crypto.randomUUID(), username } };
+    if (!username || !password) {
+      return new Response(JSON.stringify({ ok: false, message: '请填写用户名和密码' }), { status: 400 });
+    }
+    const uid = username.toLowerCase().trim();
+    const existing = await redis.get(userKey(uid));
+    if (existing) {
+      return new Response(JSON.stringify({ ok: false, message: '用户名已存在' }), { status: 409 });
+    }
+    const token = generateToken();
+    const hashed = bcrypt.hashSync(password, 10);
+    await redis.set(userKey(uid), JSON.stringify({ username: uid, password: hashed, token }));
+    return new Response(JSON.stringify({ ok: true, token, username: uid }), { headers: { 'Content-Type': 'application/json' } });
   }
 
   // --- login ---
-  if (action[0] === 'login') {
+  if (action[0] === 'login' && req.method === 'POST') {
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch {
+      return new Response(JSON.stringify({ ok: false, message: 'invalid JSON' }), { status: 400 });
+    }
     const { username, password } = body;
-    const user = await redis.get(`user:${username}`);
-    if (!user) return { json: { ok: false, message: '用户名或密码错误' } };
-    const data = typeof user === 'string' ? JSON.parse(user) : user;
-    if (data.password !== password) return { json: { ok: false, message: '用户名或密码错误' } };
-    data.token = crypto.randomUUID();
-    await redis.set(`user:${username}`, JSON.stringify(data));
-    return { json: { ok: true, token: data.token, username } };
+    if (!username || !password) {
+      return new Response(JSON.stringify({ ok: false, message: '请填写用户名和密码' }), { status: 400 });
+    }
+    const uid = username.toLowerCase().trim();
+    const raw = await redis.get(userKey(uid));
+    if (!raw) {
+      return new Response(JSON.stringify({ ok: false, message: '用户名或密码错误' }), { status: 401 });
+    }
+    const user = JSON.parse(raw);
+    if (!bcrypt.compareSync(password, user.password)) {
+      return new Response(JSON.stringify({ ok: false, message: '用户名或密码错误' }), { status: 401 });
+    }
+    const token = generateToken();
+    user.token = token;
+    await redis.set(userKey(uid), JSON.stringify(user));
+    await redis.set(sessionKey(token), uid, { EX: 60 * 60 * 24 * 30 }); // 30 days
+    return new Response(JSON.stringify({ ok: true, token, username: uid }), {
+      headers: { 'Content-Type': 'application/json', 'Set-Cookie': `session=${token}; HttpOnly; Max-Age=${60*60*24*30}; Path=/` },
+    });
   }
 
   // --- verify ---
-  if (action[0] === 'verify') {
-    const { token } = body;
-    const users = await redis.scanMatch(`user:*`);
-    for (const k of (users || [])) {
-      const u = await redis.get(k);
-      if (u && (typeof u === 'string' ? JSON.parse(u) : u).token === token) {
-        return { json: { ok: true, username: (typeof u === 'string' ? JSON.parse(u) : u).username } };
+  if (action[0] === 'verify' && req.method === 'GET') {
+    const token = req.headers.get('authorization') || '';
+    let userId = null;
+    if (token) {
+      userId = await redis.get(sessionKey(token));
+    }
+    // Also check cookie
+    if (!userId) {
+      const cookieHeader = req.headers.get('cookie') || '';
+      const m = cookieHeader.match(/session=([^;]+)/);
+      if (m) {
+        userId = await redis.get(sessionKey(m[1]));
       }
     }
-    return { json: { ok: false, message: '无效令牌' } };
+    if (!userId) {
+      return new Response(JSON.stringify({ ok: false, message: '未登录' }), { status: 401 });
+    }
+    const raw = await redis.get(userKey(userId));
+    if (!raw) {
+      return new Response(JSON.stringify({ ok: false, message: '未登录' }), { status: 401 });
+    }
+    const user = JSON.parse(raw);
+    return new Response(JSON.stringify({ ok: true, username: user.username, token: user.token }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
   }
 
-  return { json: { ok: false, message: '未知操作' } };
+  // --- logout ---
+  if (action[0] === 'logout' && req.method === 'POST') {
+    const token = req.headers.get('authorization') || '';
+    if (token) await redis.del(sessionKey(token));
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { 'Content-Type': 'application/json', 'Set-Cookie': 'session=; HttpOnly; Max-Age=0; Path=/' },
+    });
+  }
+
+  // --- get events (GET) ---
+  if (action[0] === 'events' && req.method === 'GET') {
+    let userId = null;
+    const token = req.headers.get('authorization') || '';
+    if (token) {
+      userId = await redis.get(sessionKey(token));
+    }
+    if (!userId) {
+      const cookieHeader = req.headers.get('cookie') || '';
+      const m = cookieHeader.match(/session=([^;]+)/);
+      if (m) {
+        userId = await redis.get(sessionKey(m[1]));
+      }
+    }
+    if (!userId) {
+      return new Response(JSON.stringify({ ok: false, message: '需要登录' }), { status: 401 });
+    }
+    const raw = await redis.get(eventsKey(userId));
+    return new Response(JSON.stringify({ ok: true, events: raw ? JSON.parse(raw) : [] }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // --- save events (POST/PUT) ---
+  if ((action[0] === 'events') && (req.method === 'POST' || req.method === 'PUT')) {
+    let userId = null;
+    const token = req.headers.get('authorization') || '';
+    if (token) {
+      userId = await redis.get(sessionKey(token));
+    }
+    if (!userId) {
+      const cookieHeader = req.headers.get('cookie') || '';
+      const m = cookieHeader.match(/session=([^;]+)/);
+      if (m) {
+        userId = await redis.get(sessionKey(m[1]));
+      }
+    }
+    if (!userId) {
+      return new Response(JSON.stringify({ ok: false, message: '需要登录' }), { status: 401 });
+    }
+    let body;
+    try { body = JSON.parse(await readBody(req)); } catch {
+      return new Response(JSON.stringify({ ok: false, message: 'invalid JSON' }), { status: 400 });
+    }
+    await redis.set(eventsKey(userId), JSON.stringify(body.events || []));
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  // --- delete events (DELETE) ---
+  if (action[0] === 'events' && req.method === 'DELETE') {
+    let userId = null;
+    const token = req.headers.get('authorization') || '';
+    if (token) {
+      userId = await redis.get(sessionKey(token));
+    }
+    if (!userId) {
+      const cookieHeader = req.headers.get('cookie') || '';
+      const m = cookieHeader.match(/session=([^;]+)/);
+      if (m) {
+        userId = await redis.get(sessionKey(m[1]));
+      }
+    }
+    if (!userId) {
+      return new Response(JSON.stringify({ ok: false, message: '需要登录' }), { status: 401 });
+    }
+    await redis.del(eventsKey(userId));
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  return new Response(JSON.stringify({ ok: false, message: '未知操作' }), { status: 405 });
 };

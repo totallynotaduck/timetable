@@ -137,7 +137,6 @@ let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
 let selectedWeek = 0;
 let events = [];
-let authToken = '';
 let currentUser = '';
 let isRegistering = false;
 let dirty = false;
@@ -165,13 +164,12 @@ async function doAuth() {
   const res = await fetch(`${API}/api/auth/${action}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
     body: JSON.stringify({ username, password })
   });
   const data = await res.json();
   if (!data.ok) { document.getElementById('authError').textContent = data.message; return; }
-  authToken = data.token;
   currentUser = data.username;
-  localStorage.setItem('tt_token', data.token);
   localStorage.setItem('tt_user', data.username);
   showApp();
 }
@@ -188,12 +186,13 @@ async function showApp() {
   }, 10000);
 }
 
-function logout() {
+async function logout() {
   if (dirty) syncSave();
   clearInterval(syncTimer);
+  try { await fetch(`${API}/api/auth/logout`, { method: 'POST', credentials: 'include' }); } catch {}
   localStorage.removeItem('tt_token');
   localStorage.removeItem('tt_user');
-  authToken = ''; currentUser = '';
+  currentUser = '';
   events = [];
   document.getElementById('appScreen').style.display = 'none';
   document.getElementById('authScreen').style.display = 'flex';
@@ -208,7 +207,7 @@ function hideLoading() { document.getElementById('loadingBar').style.width = '0'
 async function syncLoad() {
   showLoading(30);
   try {
-    const res = await fetch(`${API}/api/events`, { headers: { 'Authorization': authToken } });
+    const res = await fetch(`${API}/api/auth/events`, { credentials: 'include' });
     const data = await res.json();
     if (data.ok) {
       events = data.events || [];
@@ -226,9 +225,10 @@ async function syncSave() {
   document.getElementById('syncStatus').textContent = '⟳ 同步中...';
   showLoading(50);
   try {
-    await fetch(`${API}/api/events`, {
+    await fetch(`${API}/api/auth/events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': authToken },
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ events })
     });
     document.getElementById('syncStatus').textContent = '✓ 已同步';
@@ -583,12 +583,16 @@ function changeMonth(delta) {
 
 // Auto-login check
 (async function init() {
-  const saved = localStorage.getItem('tt_token');
-  if (saved) {
-    authToken = saved;
-    currentUser = localStorage.getItem('tt_user') || '';
+  const savedUser = localStorage.getItem('tt_user');
+  if (savedUser) {
+    currentUser = savedUser;
     events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
-    await showApp();
+    const res = await fetch(`${API}/api/auth/verify`, { credentials: 'include' });
+    const data = await res.json();
+    if (data.ok) {
+      await showApp();
+      return;
+    }
   }
 })();
 </script>
