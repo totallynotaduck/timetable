@@ -51,7 +51,10 @@ module.exports = async (req) => {
     const token = generateToken();
     const hashed = bcrypt.hashSync(password, 10);
     await redis.set(userKey(uid), JSON.stringify({ username: uid, password: hashed, token }));
-    return new Response(JSON.stringify({ ok: true, token, username: uid }), { headers: { 'Content-Type': 'application/json' } });
+    await redis.set(sessionKey(token), uid, { EX: 60 * 60 * 24 * 30 });
+    return new Response(JSON.stringify({ ok: true, token, username: uid }), {
+      headers: { 'Content-Type': 'application/json', 'Set-Cookie': `session=${token}; HttpOnly; Max-Age=${60*60*24*30}; Path=/` },
+    });
   }
 
   // --- login ---

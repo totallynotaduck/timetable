@@ -157,6 +157,7 @@ function toggleAuthMode() {
 }
 
 async function doAuth() {
+  document.getElementById('authError').style.color = '';
   const username = document.getElementById('authUsername').value.trim();
   const password = document.getElementById('authPassword').value.trim();
   if (!username || !password) { document.getElementById('authError').textContent = '请填写用户名和密码'; return; }
@@ -169,16 +170,19 @@ async function doAuth() {
   });
   const data = await res.json();
   if (!data.ok) { document.getElementById('authError').textContent = data.message; return; }
+  const msg = isRegistering ? '注册成功！正在进入...' : '登录成功！正在进入...';
+  document.getElementById('authError').style.color = '#188038';
+  document.getElementById('authError').textContent = msg;
   currentUser = data.username;
   localStorage.setItem('tt_user', data.username);
-  showApp();
+  await showApp();
 }
 
 async function showApp() {
   document.getElementById('authScreen').style.display = 'none';
   document.getElementById('appScreen').style.display = 'block';
   document.getElementById('userName').textContent = `👤 ${currentUser}`;
-  await syncLoad();
+  try { await syncLoad(); } catch(e) { console.warn('sync load failed', e); }
   renderAll();
   // Auto-sync on interval
   syncTimer = setInterval(async () => {
@@ -587,12 +591,14 @@ function changeMonth(delta) {
   if (savedUser) {
     currentUser = savedUser;
     events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
-    const res = await fetch(`${API}/api/auth/verify`, { credentials: 'include' });
-    const data = await res.json();
-    if (data.ok) {
-      await showApp();
-      return;
-    }
+    try {
+      const res = await fetch(`${API}/api/auth/verify`, { credentials: 'include' });
+      const data = await res.json();
+      if (data.ok) {
+        await showApp();
+        return;
+      }
+    } catch(e) { console.warn('verify failed', e); }
   }
 })();
 </script>
