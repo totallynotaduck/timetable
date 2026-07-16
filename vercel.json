@@ -1,4 +1,12 @@
 {
   "framework": null,
-  "regions": ["iad1"]
+  "regions": ["iad1"],
+  "env": {
+    "UPSTASH_REDIS_REST_URL": "@upstash_redis_url",
+    "UPSTASH_REDIS_REST_TOKEN": "@upstash_redis_token"
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }
