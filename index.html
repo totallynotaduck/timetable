@@ -147,6 +147,7 @@ const API = (document.querySelector('meta[name="api-base"]') || {}).content
 let authToken = localStorage.getItem('tt_token') || '';
 let authUser = localStorage.getItem('tt_user') || '';
 let authMode = 'login'; // 'login' | 'register'
+let localMode = false;  // true when no cloud API is reachable/booted
 
 let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
@@ -198,28 +199,39 @@ async function submitAuth(event) {
   const username = document.getElementById('authUser').value.trim();
   const password = document.getElementById('authPass').value;
   if (!username || !password) { showAuthMsg('请填写用户名和密码', 'err'); return false; }
-  const { res, data } = await apiFetch(`/${authMode}`, {
-    method: 'POST',
-    body: JSON.stringify({ username, password })
-  });
-  if (data.ok) {
-    authToken = data.token;
-    authUser = data.username;
-    localStorage.setItem('tt_token', authToken);
+  showAuthMsg('正在连接服务器...', '');
+  try {
+    const { res, data } = await apiFetch(`/${authMode}`, {
+      method: 'POST',
+      body: JSON.stringify({ username, password })
+    });
+    if (data.ok) {
+      authToken = data.token;
+      authUser = data.username;
+      localStorage.setItem('tt_token', authToken);
+      localStorage.setItem('tt_user', authUser);
+      showAuthMsg('登录成功，正在加载日程...', 'ok');
+      await enterApp();
+    } else {
+      showAuthMsg(data.message || '操作失败', 'err');
+    }
+  } catch (e) {
+    // No reachable cloud API: fall back to a local, single-device account so
+    // the app still opens. Sync will activate once API is configured.
+    localMode = true;
+    authUser = username;
     localStorage.setItem('tt_user', authUser);
-    showAuthMsg('登录成功，正在加载日程...', 'ok');
+    showAuthMsg('已离线登录（仅本机保存，未同步云端）。配置 API 后可多设备同步。', 'ok');
     await enterApp();
-  } else {
-    showAuthMsg(data.message || '操作失败', 'err');
   }
   return false;
 }
 
 async function logout() {
-  if (authToken) {
+  if (authToken && !localMode) {
     try { await apiFetch('/logout', { method: 'POST' }); } catch {}
   }
-  authToken = ''; authUser = '';
+  authToken = ''; authUser = ''; localMode = false;
   localStorage.removeItem('tt_token');
   localStorage.removeItem('tt_user');
   localStorage.removeItem('timetable_events');
@@ -231,6 +243,7 @@ async function logout() {
 
 async function verifySession() {
   if (!authToken) return false;
+  if (localMode) return true;
   const { res, data } = await apiFetch('/verify', { method: 'GET' });
   if (data.ok) {
     authUser = data.username;
@@ -261,6 +274,12 @@ async function enterApp() {
 }
 
 async function syncLoad() {
+  if (localMode) {
+    events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
+    setSync('⚠ 未连接云端');
+    renderTable();
+    return;
+  }
   showLoading(30);
   try {
     const { data } = await apiFetch('/events', { method: 'GET' });
@@ -280,6 +299,11 @@ async function syncLoad() {
 }
 
 async function syncSave() {
+  if (localMode) {
+    saveLocal();
+    setSync('⚠ 未连接云端');
+    return;
+  }
   setSync('⟳ 同步中...');
   showLoading(50);
   try {
@@ -297,6 +321,7 @@ async function syncSave() {
 function saveLocal() { localStorage.setItem('timetable_events', JSON.stringify(events)); }
 
 (async function init() {
+  if (authUser && !authToken) localMode = true; // returning local-only user
   const ok = await verifySession();
   if (ok) {
     await enterApp();

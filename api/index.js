@@ -33,10 +33,24 @@ function readBody(req) {
   });
 }
 
+function corsHeaders() {
+  // Comma-separated list of allowed origins in ALLOWED_ORIGINS, or '*'.
+  const allowed = (process.env.ALLOWED_ORIGINS || '*')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const origin = allowed.includes('*') ? '*' : allowed.join(',');
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+    'Access-Control-Allow-Credentials': 'true',
+    'Vary': 'Origin',
+  };
+}
+
 function json(body, status = 200, extraHeaders = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(), ...extraHeaders },
   });
 }
 
@@ -72,6 +86,11 @@ module.exports = async (req) => {
   } catch {}
 
   const method = req.method;
+
+  // --- CORS preflight ---
+  if (method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders() });
+  }
 
   // --- register ---
   if (action === 'register' && method === 'POST') {
