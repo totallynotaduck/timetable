@@ -153,11 +153,14 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 <script>
 // --- Cloud config (Upstash Redis REST) --------------------------------------
 // The app talks directly to Upstash Redis REST (CORS-enabled), so it runs on
-// GitHub Pages with no server. The REST URL + token are stored in localStorage.
+// GitHub Pages with no server. The REST URL + token are stored in localStorage
+// (and can be changed via the "⚙ 数据库设置" panel). Defaults are pre-filled.
 const LS_URL = 'tt_upstash_url';
 const LS_TOKEN = 'tt_upstash_token';
-const UP_URL = localStorage.getItem(LS_URL) || '';
-const UP_TOKEN = localStorage.getItem(LS_TOKEN) || '';
+const DEFAULT_URL = 'https://relieved-feline-166866.upstash.io';
+const DEFAULT_TOKEN = 'gQAAAAAAAovSAAIgcDJlNWMxOTNiMGZkZmI0ZjA5ODkzYTg5Y2M0OWZlNWUwYw';
+const UP_URL = localStorage.getItem(LS_URL) || DEFAULT_URL;
+const UP_TOKEN = localStorage.getItem(LS_TOKEN) || DEFAULT_TOKEN;
 
 let authUser = localStorage.getItem('tt_user') || '';
 let authMode = 'login'; // 'login' | 'register'
