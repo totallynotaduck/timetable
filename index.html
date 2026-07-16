@@ -8,19 +8,6 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f5f5f5; color: #333; }
 
-/* Auth screen */
-.auth-screen { display: flex; align-items: center; justify-content: center; min-height: 100vh; background: linear-gradient(135deg, #1a73e8 0%, #6c63ff 100%); }
-.auth-box { background: white; border-radius: 16px; padding: 40px; width: 380px; box-shadow: 0 12px 48px rgba(0,0,0,0.15); }
-.auth-box h1 { text-align: center; margin-bottom: 8px; font-size: 26px; color: #1a73e8; }
-.auth-box .subtitle { text-align: center; color: #999; margin-bottom: 24px; font-size: 13px; }
-.auth-box input { width: 100%; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; font-size: 15px; margin-bottom: 12px; outline: none; transition: border 0.2s; }
-.auth-box input:focus { border-color: #1a73e8; }
-.auth-box button.full { width: 100%; padding: 12px; background: #1a73e8; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; margin-top: 8px; }
-.auth-box button.full:hover { background: #1558b0; }
-.auth-toggle { text-align: center; margin-top: 16px; font-size: 13px; color: #666; }
-.auth-toggle a { color: #1a73e8; cursor: pointer; text-decoration: underline; }
-.auth-error { color: #d93025; font-size: 13px; text-align: center; margin-top: 10px; min-height: 18px; }
-
 /* Header */
 .header { background: #1a73e8; color: white; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
 .header h1 { font-size: 22px; font-weight: 500; }
@@ -29,11 +16,7 @@ body { font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: #f
 .header-controls button { background: rgba(255,255,255,0.2); border: none; color: white; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 14px; }
 .header-controls button:hover { background: rgba(255,255,255,0.35); }
 .header-controls .month-display { font-size: 18px; min-width: 140px; text-align: center; font-weight: 500; }
-.user-info { display: flex; align-items: center; gap: 8px; }
 .user-info span { font-size: 14px; }
-.btn-logout { background: rgba(255,255,255,0.15); border: none; color: white; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; }
-.btn-logout:hover { background: rgba(255,255,255,0.3); }
-.sync-status { font-size: 12px; opacity: 0.7; }
 
 /* Main */
 .main { max-width: 1400px; margin: 24px auto; padding: 0 16px; }
@@ -87,23 +70,8 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
 </head>
 <body>
 
-<!-- Auth Screen -->
-<div id="authScreen" class="auth-screen">
-  <div class="auth-box" id="authBox">
-    <h1>📅 日程表</h1>
-    <p class="subtitle" id="authSubtitle">登录以继续</p>
-    <input type="text" id="authUsername" placeholder="用户名" autocomplete="username">
-    <input type="password" id="authPassword" placeholder="密码" autocomplete="current-password">
-    <button class="full" id="authBtn" onclick="doAuth()">登录</button>
-    <div class="auth-error" id="authError"></div>
-    <div class="auth-toggle">
-      <a onclick="toggleAuthMode()">切换注册 / 登录</a>
-    </div>
-  </div>
-</div>
-
-<!-- Main App (hidden until login) -->
-<div id="appScreen" style="display:none">
+<!-- Main App -->
+<div id="appScreen">
   <div class="header">
     <h1>📅 日程表</h1>
     <div class="header-right">
@@ -112,11 +80,7 @@ td { border: 1px solid #e8e8e8; vertical-align: top; height: 100px; width: 12.5%
         <span class="month-display" id="monthDisplay"></span>
         <button onclick="changeMonth(1)">下一月 ▶</button>
       </div>
-      <div class="user-info">
-        <span id="userName"></span>
-        <span class="sync-status" id="syncStatus"></span>
-        <button class="btn-logout" onclick="logout()">退出登录</button>
-      </div>
+      <span class="sync-status" id="syncStatus"></span>
     </div>
   </div>
 
@@ -137,8 +101,6 @@ let currentMonth = new Date().getMonth();
 let currentYear = new Date().getFullYear();
 let selectedWeek = 0;
 let events = [];
-let currentUser = '';
-let isRegistering = false;
 let dirty = false;
 let syncTimer = null;
 
@@ -148,70 +110,21 @@ for (let h = 6; h <= 22; h++) {
   if (h < 22) timeSlots.push(`${String(h).padStart(2, '0')}:30`);
 }
 
-/* --- Auth --- */
-function toggleAuthMode() {
-  isRegistering = !isRegistering;
-  document.getElementById('authBtn').textContent = isRegistering ? '注册' : '登录';
-  document.getElementById('authSubtitle').textContent = isRegistering ? '创建新账户' : '登录以继续';
-  document.getElementById('authError').textContent = '';
-}
-
-async function doAuth() {
-  document.getElementById('authError').style.color = '';
-  const username = document.getElementById('authUsername').value.trim();
-  const password = document.getElementById('authPassword').value.trim();
-  if (!username || !password) { document.getElementById('authError').textContent = '请填写用户名和密码'; return; }
-  const action = isRegistering ? 'register' : 'login';
-  const res = await fetch(`${API}/api/auth/${action}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    credentials: 'include',
-    body: JSON.stringify({ username, password })
-  });
-  const data = await res.json();
-  if (!data.ok) { document.getElementById('authError').textContent = data.message; return; }
-  const msg = isRegistering ? '注册成功！正在进入...' : '登录成功！正在进入...';
-  document.getElementById('authError').style.color = '#188038';
-  document.getElementById('authError').textContent = msg;
-  currentUser = data.username;
-  localStorage.setItem('tt_user', data.username);
-  await showApp();
-}
-
-async function showApp() {
-  document.getElementById('authScreen').style.display = 'none';
+function showApp() {
   document.getElementById('appScreen').style.display = 'block';
-  document.getElementById('userName').textContent = `👤 ${currentUser}`;
-  try { await syncLoad(); } catch(e) { console.warn('sync load failed', e); }
   renderAll();
-  // Auto-sync on interval
   syncTimer = setInterval(async () => {
     if (dirty) { await syncSave(); dirty = false; }
   }, 10000);
 }
 
-async function logout() {
-  if (dirty) syncSave();
-  clearInterval(syncTimer);
-  try { await fetch(`${API}/api/auth/logout`, { method: 'POST', credentials: 'include' }); } catch {}
-  localStorage.removeItem('tt_token');
-  localStorage.removeItem('tt_user');
-  currentUser = '';
-  events = [];
-  document.getElementById('appScreen').style.display = 'none';
-  document.getElementById('authScreen').style.display = 'flex';
-  document.getElementById('authUsername').value = '';
-  document.getElementById('authPassword').value = '';
-}
-
-/* --- Cloud sync via Redis --- */
 function showLoading(pct) { document.getElementById('loadingBar').style.width = pct + '%'; }
 function hideLoading() { document.getElementById('loadingBar').style.width = '0'; }
 
 async function syncLoad() {
   showLoading(30);
   try {
-    const res = await fetch(`${API}/api/auth/events`, { credentials: 'include' });
+    const res = await fetch(`${API}/api/events`);
     const data = await res.json();
     if (data.ok) {
       events = data.events || [];
@@ -220,7 +133,7 @@ async function syncLoad() {
     showLoading(100);
     document.getElementById('syncStatus').textContent = '✓ 已同步';
   } catch (e) {
-    document.getElementById('syncStatus').textContent = '⚠ 同步失败';
+    document.getElementById('syncStatus').textContent = '';
   }
   setTimeout(hideLoading, 500);
 }
@@ -229,20 +142,24 @@ async function syncSave() {
   document.getElementById('syncStatus').textContent = '⟳ 同步中...';
   showLoading(50);
   try {
-    await fetch(`${API}/api/auth/events`, {
+    await fetch(`${API}/api/events`, {
       method: 'POST',
-      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ events })
     });
     document.getElementById('syncStatus').textContent = '✓ 已同步';
   } catch (e) {
-    document.getElementById('syncStatus').textContent = '⚠ 同步失败';
+    document.getElementById('syncStatus').textContent = '';
   }
   setTimeout(hideLoading, 500);
 }
 
 function saveLocal() { localStorage.setItem('timetable_events', JSON.stringify(events)); }
+
+(async function init() {
+  events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
+  await showApp();
+})();
 
 /* --- Date helpers --- */
 function getWeeksOfMonth(year, month) {
@@ -585,22 +502,6 @@ function changeMonth(delta) {
   renderAll();
 }
 
-// Auto-login check
-(async function init() {
-  const savedUser = localStorage.getItem('tt_user');
-  if (savedUser) {
-    currentUser = savedUser;
-    events = JSON.parse(localStorage.getItem('timetable_events') || '[]');
-    try {
-      const res = await fetch(`${API}/api/auth/verify`, { credentials: 'include' });
-      const data = await res.json();
-      if (data.ok) {
-        await showApp();
-        return;
-      }
-    } catch(e) { console.warn('verify failed', e); }
-  }
-})();
 </script>
 </body>
 </html>
